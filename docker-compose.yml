@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: catchup-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - catchup-network
+    restart: unless-stopped
+
+  # FastStream Worker
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: catchup-worker
+    env_file:
+      - .env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - catchup-network
+
+  # Meilisearch는 외부 인스턴스 사용 (같은 서버의 localhost:7700)
+
+  # 로컬 개발용 Meilisearch
+  # meilisearch:
+  #   image: getmeili/meilisearch:v1.12
+  #   container_name: catchup-meilisearch
+  #   ports:
+  #     - "7700:7700"
+  #   environment:
+  #     - MEILI_MASTER_KEY=masterKey
+  #     - MEILI_ENV=development
+  #     - MEILI_NO_ANALYTICS=true
+  #     - MEILI_EXPERIMENTAL_ENABLE_VECTOR_STORE=true
+  #   volumes:
+  #     - meili_data:/meili_data
+  #   restart: unless-stopped
+
+networks:
+  catchup-network:
+    driver: bridge
+
+volumes:
+  rabbitmq_data:
+  # meili_data:  # Meilisearch를 로컬에서 실행할 경우 주석 해제

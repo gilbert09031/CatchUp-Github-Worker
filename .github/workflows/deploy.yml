@@ -1,0 +1,84 @@
+name: Deploy to OCI
+
+on:
+  push:
+    branches:
+      - main  # main 브랜치에 push 시 자동 배포
+  workflow_dispatch:  # 수동 트리거 가능
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.OCI_SSH_PRIVATE_KEY }}
+
+      - name: Add OCI host to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.OCI_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Create .env file on OCI
+        run: |
+          ssh ${{ secrets.OCI_USER }}@${{ secrets.OCI_HOST }} << 'EOF'
+            cd ~/CatchUp-Github-Worker
+
+            # .env 파일 생성 (GitHub Secrets에서 주입)
+            cat > .env << 'ENVEOF'
+          APP_ENV=${{ secrets.APP_ENV }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          MEILI_URL=${{ secrets.MEILI_URL }}
+          MEILI_MASTER_KEY=${{ secrets.MEILI_MASTER_KEY }}
+          GITHUB_TOKEN=${{ secrets.GH_TOKEN }}
+          RABBITMQ_URL=${{ secrets.RABBITMQ_URL }}
+          MAX_ZIP_SIZE_MB=${{ secrets.MAX_ZIP_SIZE_MB }}
+          ENVEOF
+          EOF
+
+      - name: Deploy to OCI via rsync
+        run: |
+          # 코드를 OCI 인스턴스로 동기화 (.env 제외)
+          rsync -avz --delete \
+            --exclude '.git' \
+            --exclude '.env' \
+            --exclude 'venv' \
+            --exclude '.venv' \
+            --exclude '__pycache__' \
+            --exclude '*.pyc' \
+            --exclude '.idea' \
+            --exclude 'logs' \
+            ./ ${{ secrets.OCI_USER }}@${{ secrets.OCI_HOST }}:~/CatchUp-Github-Worker/
+
+      - name: Deploy with Docker Compose
+        run: |
+          ssh ${{ secrets.OCI_USER }}@${{ secrets.OCI_HOST }} << 'EOF'
+            cd ~/CatchUp-Github-Worker
+
+            # 기존 컨테이너 중지
+            docker-compose down
+
+            # 사용하지 않는 Docker 이미지 정리
+            echo "Cleaning up unused Docker images..."
+            docker image prune -a -f
+
+            # Docker Compose로 서비스 빌드 및 시작
+            docker-compose build --no-cache
+            docker-compose up -d
+
+            # 컨테이너 상태 확인
+            docker-compose ps
+
+            # Worker 로그 확인
+            echo "=== Worker Logs ==="
+            docker-compose logs --tail=50 worker
+          EOF
+
+      - name: Deployment completed
+        run: |
+          echo " Deployment to OCI completed successfully!"

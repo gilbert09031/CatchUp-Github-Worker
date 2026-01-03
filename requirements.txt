@@ -1,0 +1,15 @@
+# --- Core Framework ---
+faststream[rabbit, cli]     # FastStream 및 RabbitMQ 드라이버
+
+# --- Configuration ---
+pydantic               # 데이터 검증 및 모델링
+pydantic-settings      # 환경변수 기반 설정 관리
+python-dotenv          # .env 파일 로드
+
+# --- HTTP Client ---
+httpx                  # 비동기 HTTP 클라이언트 (GitHub API 호출용)
+
+# --- Data Processing & AI ---
+meilisearch            # Meilisearch Python 클라이언트
+openai                 # OpenAI API 클라이언트 (임베딩용)
+langchain-text-splitters # 전체 LangChain 대신 청킹 기능만 분리된 경량 패키지
