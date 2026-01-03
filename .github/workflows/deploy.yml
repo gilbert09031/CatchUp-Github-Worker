@@ -24,10 +24,23 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.OCI_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Install rsync
+      - name: Install rsync (local)
         run: |
           sudo apt-get update
           sudo apt-get install -y rsync
+
+      - name: Install rsync on OCI
+        run: |
+          ssh ${{ secrets.OCI_USER }}@${{ secrets.OCI_HOST }} << 'EOF'
+            # OCI 서버에 rsync 설치
+            if ! command -v rsync &> /dev/null; then
+              echo "Installing rsync on OCI server..."
+              sudo apt-get update
+              sudo apt-get install -y rsync
+            else
+              echo "rsync is already installed"
+            fi
+          EOF
 
       - name: Create .env file on OCI
         run: |
