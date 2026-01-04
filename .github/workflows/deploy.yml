@@ -32,14 +32,14 @@ jobs:
       - name: Install dependencies on OCI
         run: |
           ssh ${{ secrets.OCI_USER }}@${{ secrets.OCI_HOST }} << 'EOF'
-            # rsync 설치
+            # rsync 설치 (조건부 apt-get update)
             if ! command -v rsync &> /dev/null; then
               echo "Installing rsync..."
-              sudo apt-get update
+              sudo apt-get update -qq
               sudo apt-get install -y rsync
             fi
 
-            # Docker 설치 확인
+            # Docker 설치 확인 (설치 시에만 update)
             if ! command -v docker &> /dev/null; then
               echo "Installing Docker..."
               curl -fsSL https://get.docker.com -o get-docker.sh
@@ -49,13 +49,13 @@ jobs:
             fi
 
             # Docker Compose 설치 확인
-            if ! command -v docker-compose &> /dev/null; then
+            if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
               echo "Installing Docker Compose..."
-              sudo apt-get update
-              sudo apt-get install -y docker-compose
+              sudo apt-get update -qq
+              sudo apt-get install -y docker-compose-plugin
             fi
 
-            echo "All dependencies installed successfully"
+            echo "All dependencies verified"
           EOF
 
       - name: Create .env file on OCI
@@ -95,22 +95,37 @@ jobs:
             cd ~/CatchUp-Github-Worker
 
             # 기존 컨테이너 중지
+            echo "Stopping containers..."
             docker compose down
 
-            # 사용하지 않는 Docker 이미지 정리
-            echo "Cleaning up unused Docker images..."
-            docker image prune -a -f
+            # Dangling 이미지만 정리 (캐시 보존)
+            echo "Cleaning up dangling images..."
+            docker image prune -f
 
-            # Docker Compose로 서비스 빌드 및 시작
-            docker compose build --no-cache
+            # BuildKit 활성화로 빌드 속도 향상
+            export DOCKER_BUILDKIT=1
+            export COMPOSE_DOCKER_CLI_BUILD=1
+
+            # Docker Compose로 서비스 빌드 및 시작 (캐시 활용)
+            echo "Building images with cache (BuildKit enabled)..."
+            docker compose build
+
+            echo "Starting services..."
             docker compose up -d
 
+            # 서비스가 시작될 때까지 대기
+            echo "Waiting for services to start..."
+            sleep 5
+
             # 컨테이너 상태 확인
+            echo "=== Container Status ==="
             docker compose ps
 
             # Worker 로그 확인
             echo "=== Worker Logs ==="
             docker compose logs --tail=50 worker
+
+            echo "✅ Deployment completed successfully!"
           EOF
 
       - name: Deployment completed
