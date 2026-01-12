@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Optional
 
-# [RabbitMQ 수신용] Spring Boot가 보내는 "동기화 요청" 메시지
+# [RabbitMQ 수신용] Repository 동기화 요청 형식 -> CodeBase Indexing
 class GithubRepoSyncRequest(BaseModel):
     repository_id: int = Field(..., description="DB PK of the repository")
     owner: str = Field(..., description="Github Owner (userId or OrganizationName)")
@@ -15,3 +15,28 @@ class GithubFileObject(BaseModel):
     content: str
     language: str
     size: int
+
+# [Rabbit MQ 수신용] PR 동기화 요청 형식 -> PR Indexing
+class GithubPRSyncRequest(BaseModel):
+    repository_id: int = Field(..., description="Internal repository ID from database")
+
+    owner: str = Field(..., description="GitHub owner (username or organization)")
+
+    repo_name: str = Field(..., description="Repository name")
+
+    branch: str = Field(..., description="Base branch to associate this PR with (e.g., 'main', 'develop')")
+
+    pr_number: int = Field(..., description="Pull Request number to sync")
+
+    github_token: Optional[str] = Field(
+        default=None,
+        description="Optional user-specific GitHub token for private repos"
+    )
+
+# [Rabbit MQ 수신용] Issue 동기화 요청 형식 -> Issue Indexing
+class GithubIssueSyncRequest(BaseModel):
+    repository_id: int
+    owner: str
+    repo_name: str
+    issue_number: int
+    github_token: Optional[str] = None

@@ -1,10 +1,15 @@
 import logging
 import asyncio
+
+from dotenv import load_dotenv
+load_dotenv()
+
 from faststream import FastStream
 from faststream.rabbit import RabbitBroker
 
 from src.config.settings import get_settings
 from src.consumers.repository_consumer import router as repo_router
+from src.consumers.pr_consumer import router as pr_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -17,6 +22,7 @@ settings = get_settings()
 broker = RabbitBroker(settings.RABBITMQ_URL)
 
 broker.include_router(repo_router)
+broker.include_router(pr_router)
 
 app = FastStream(broker)
 
