@@ -23,7 +23,7 @@ async def sync_repository_code(msg: GithubRepoSyncRequest):
 
     try:
         # 저장소별 인덱스 이름 생성
-        index_name = MeiliIndexer.get_index_name(msg.repo_name, msg.branch)
+        index_name = MeiliIndexer.get_index_name(msg.repo_name, msg.branch) + "_code"
         logger.info(f"Using index: {index_name}")
 
         # 저장소별 Indexer 생성
@@ -55,6 +55,7 @@ async def sync_repository_code(msg: GithubRepoSyncRequest):
                 # 2. Document 변환 (metadata 포함)
                 doc = GithubCodeDocument(
                     id=GithubCodeDocument.generate_id(msg.repository_id, chunk.file_path, i),
+                    sourceType = 0,
                     file_path=chunk.file_path,
                     category="CODE",
                     source=f"{msg.repo_name}@{msg.branch}",

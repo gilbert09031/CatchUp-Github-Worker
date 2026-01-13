@@ -14,6 +14,7 @@ class CodeChunk(BaseModel):
 
 class GithubCodeDocument(BaseModel):
     id: str = Field(..., description="Unique Document ID (includes chunk index)")
+    sourceType: int = Field(..., description="Source Type for RAG Server")
 
     file_path: str = Field(..., description="Full file path")
     category: str = Field("CODE", description="Category: CODE, COMMIT, PR")
@@ -44,8 +45,8 @@ class GithubCodeDocument(BaseModel):
         hash_suffix = hashlib.md5(unique_str.encode()).hexdigest()[:10]
 
         safe_name = file_path.split("/")[-1].replace(".", "_")
-        # 예: repo_123_main_py_0_a1b2c3d4
-        return f"repo_{repo_id}_{safe_name}_{chunk_index}_{hash_suffix}"
+        # 예: 123_main_py_0_a1b2c3d4
+        return f"{repo_id}_{safe_name}_{chunk_index}_{hash_suffix}"
 
 
 class GithubPRDocument(BaseModel):
@@ -60,6 +61,11 @@ class GithubPRDocument(BaseModel):
         ...,
         description="Unique document ID. Format: pr_{pr_number}"
     )
+    sourceType: int = Field(
+        ...,
+        description="Source Type for RAG Server"
+    )
+
 
     # ========================================
     # PR Core Metadata
@@ -211,9 +217,12 @@ class GithubPRDocument(BaseModel):
     # ========================================
 
     @staticmethod
-    def generate_id(pr_number: int) -> str:
-        """Document ID 생성"""
-        return f"pr_{pr_number}"
+    def generate_id(pr_number: int, repository_id: int) -> str:
+
+        import hashlib
+        unique_str = f"{repository_id}_{pr_number}"
+        hash_suffix = hashlib.md5(unique_str.encode()).hexdigest()[:8]
+        return f"{repository_id}_{pr_number}_{hash_suffix}"
 
     @staticmethod
     def generate_search_text(
@@ -266,7 +275,8 @@ class GithubPRDocument(BaseModel):
     ) -> "GithubPRDocument":
         """GitHub API 응답으로부터 Document 생성"""
         return cls(
-            id=cls.generate_id(pr_data["pr_number"]),
+            sourceType=1,
+            id=cls.generate_id(pr_data["pr_number"], repository_id),
             pr_number=pr_data["pr_number"],
             title=pr_data["title"],
             state=pr_data["state"],

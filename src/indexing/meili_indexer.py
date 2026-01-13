@@ -52,10 +52,21 @@ class MeiliIndexer:
 
         except Exception as e:
             logger.error(f"Failed to configure Meilisearch index: {e}")
+            raise e
 
     def _configure_code_index(self, index):
         "Source Code Index 설정"
-        index.update_filterable_attributes([
+        tasks = []
+
+        task = index.update_searchable_attributes([
+            "text",
+            "file_path",
+            "metadata.class_name",
+            "metadata.function_name"
+        ])
+        tasks.append(task)
+
+        task = index.update_filterable_attributes([
             "repository_id",
             "owner",
             "language",
@@ -64,32 +75,42 @@ class MeiliIndexer:
             "metadata.class_name",
             "metadata.function_name"
         ])
+        tasks.append(task)
 
-        index.update_searchable_attributes([
-            "text",
-            "file_path",
-            "metadata.class_name",
-            "metadata.function_name"
-        ])
-
-        index.update_sortable_attributes([
+        task = index.update_sortable_attributes([
             "repository_id"
         ])
+        tasks.append(task)
 
-        index.update_embedders({
+        task = index.update_embedders({
             "default": {
                 "source": "userProvided",
                 "dimensions": 3072
             }
         })
+        tasks.append(task)
+
+        # 모든 설정 task가 완료될 때까지 대기
+        for task in tasks:
+            result = self.client.wait_for_task(task.task_uid, timeout_in_ms=30000)
+            if result.status != "succeeded":
+                raise Exception(f"Failed to configure index: task {task.task_uid} status is {result.status}")
 
         logger.info(f" Code index '{self.index_name}' configured")
 
     def _configure_pr_index(self, index):
         """PR 인덱스 설정"""
+        tasks = []
 
-        # 1. 필터 가능 속성
-        index.update_filterable_attributes([
+        task = index.update_searchable_attributes([
+            "title",
+            "body",
+            "commit_messages",
+            "changed_files"
+        ])
+        tasks.append(task)
+
+        task = index.update_filterable_attributes([
             # 기본 필터
             "repository_id",
             "owner",
@@ -115,17 +136,9 @@ class MeiliIndexer:
             "additions",
             "deletions"
         ])
+        tasks.append(task)
 
-        # 2. 검색 가능 속성
-        index.update_searchable_attributes([
-            "title",
-            "body",
-            "commit_messages",
-            "changed_files"
-        ])
-
-        # 3. 정렬 가능 속성
-        index.update_sortable_attributes([
+        task = index.update_sortable_attributes([
             "created_at",
             "updated_at",
             "merged_at",
@@ -134,14 +147,21 @@ class MeiliIndexer:
             "additions",
             "deletions"
         ])
+        tasks.append(task)
 
-        # 4. 임베더 설정
-        index.update_embedders({
+        task = index.update_embedders({
             "default": {
                 "source": "userProvided",
                 "dimensions": 3072
             }
         })
+        tasks.append(task)
+
+        # 모든 설정 task가 완료될 때까지 대기
+        for task in tasks:
+            result = self.client.wait_for_task(task.task_uid, timeout_in_ms=30000)
+            if result.status != "succeeded":
+                raise Exception(f"Failed to configure index: task {task.task_uid} status is {result.status}")
 
         logger.info(f" pr index '{self.index_name}' configured")
 

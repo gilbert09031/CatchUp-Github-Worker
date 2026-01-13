@@ -32,7 +32,7 @@ pr_client = GithubPrClient()
 embedder = OpenAIEmbedder()
 
 
-@router.subscriber("github_pr_queue")
+@router.subscriber("github_pull_request_queue")
 async def sync_pr_metadata(msg: GithubPRSyncRequest):
     logger.info(
         f" Processing PR sync request: "
