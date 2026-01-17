@@ -57,18 +57,33 @@ async def sync_pr_metadata(msg: GithubPRSyncRequest):
         )
 
         logger.info(
-            f"Metadata collected: {pr_data['changed_files_count']} files, "
+            f"Metadata collected: {len(pr_data['changed_files'])} files, "
             f"{len(pr_data['commit_messages'])} commits"
         )
 
         # 4. GithubPRDocument 생성
         logger.info(f"Creating PR document...")
-        doc = GithubPRDocument.from_github_api(
-            pr_data=pr_data,
-            repository_id=msg.repository_id,
-            owner=msg.owner,
-            repo_name=msg.repo_name,
-            branch=msg.branch
+        doc = GithubPRDocument(
+            source_type = 1,
+            owner_repo = f"{msg.owner}_{msg.repo_name}",
+            head_base = f"{pr_data['head_branch']}->{pr_data['base_branch']}",
+            pr_number = pr_data["pr_number"],
+            title = pr_data["title"],
+            state = pr_data["state"],
+            author = pr_data["author"],
+            created_at = pr_data["created_at"],
+            updated_at = pr_data["updated_at"],
+            merged_at = pr_data.get("merged_at"),
+            closed_at = pr_data.get("closed_at"),
+            body = pr_data.get("body", ""),
+            commit_messages = pr_data.get("commit_messages", []),
+            changed_files = pr_data.get("changed_files", []),
+            additions = pr_data.get("additions", 0),
+            deletions = pr_data.get("deletions", 0),
+            labels = pr_data.get("labels", []),
+            milestone = pr_data.get("milestone"),
+            html_url = pr_data["html_url"],
+            _vectors = {}
         )
 
         # 5. 검색용 텍스트 생성
@@ -101,7 +116,7 @@ async def sync_pr_metadata(msg: GithubPRSyncRequest):
             f"Summary: "
             f"PR #{doc.pr_number} | "
             f"State: {doc.state} | "
-            f"Files: {doc.changed_files_count} | "
+            f"Files: {len(doc.changed_files)} | "
             f"Author: {doc.author}"
         )
 
