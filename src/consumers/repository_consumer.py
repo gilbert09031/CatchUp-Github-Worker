@@ -3,10 +3,9 @@ from src.models.github import GithubRepoSyncRequest
 from src.models.search import GithubCodeDocument
 from src.services.github_client_adaptive import GithubClientAdaptive  # Adaptive 방식 사용
 from src.chunking.code_chunker import CodeChunker
-from src.embedding.openai_embedder import OpenAIEmbedder
 from src.indexing.meili_indexer import MeiliIndexer
 from src.config.settings import get_settings
-from src.utils.file_utils import get_file_category, format_file_path_with_chunk
+from src.utils.file_utils import get_file_category
 import logging
 
 router = RabbitRouter()
@@ -15,7 +14,6 @@ settings = get_settings()
 
 # 서비스 인스턴스들 초기화 (싱글톤처럼 재사용)
 chunker = CodeChunker()
-embedder = OpenAIEmbedder()
 
 
 @router.subscriber("github_repository_queue")
@@ -38,7 +36,7 @@ async def sync_repository_code(msg: GithubRepoSyncRequest):
 
         # 배치 처리를 위한 버퍼
         doc_buffer = []
-        BATCH_SIZE = 20  # 임베딩/인덱싱을 한 번에 처리할 문서 수
+        BATCH_SIZE = 100
         total_processed = 0
 
         async for file_obj in client.fetch_repo_files(
@@ -55,50 +53,40 @@ async def sync_repository_code(msg: GithubRepoSyncRequest):
             for i, chunk in enumerate(chunks):
                 # 2. Document 변환 (metadata 포함)
                 doc = GithubCodeDocument(
+                    # Meta
                     source_type = 0,
-                    file_path = format_file_path_with_chunk(chunk.file_path, i),
+                    # Primary Key
+                    id = GithubCodeDocument.generate_id(chunk.file_path, i),
+                    # Repository 정보
+                    owner = msg.owner,
+                    repo = msg.repo_name,
+                    branch = msg.branch,
+                    # File 정보
+                    file_path = chunk.file_path,
+                    chunk_number = i,
                     category = get_file_category(chunk.file_path, chunk.language),
-                    owner_repo_branch = f"{msg.owner}_{msg.repo_name}@{msg.branch}",
+                    # Content
                     text = chunk.content,
-                    html_url = f"https://github.com/{msg.owner}/{msg.repo_name}/blob/{msg.branch}/{chunk.file_path}",
                     metadata = chunk.metadata,
-                    _vectors = {}
+                    # Link
+                    html_url = f"https://github.com/{msg.owner}/{msg.repo_name}/blob/{msg.branch}/{chunk.file_path}"
                 )
                 doc_buffer.append(doc)
 
-            # 3. 버퍼가 차면 배치 처리 (Embedding -> Indexing)
+            # 3. 버퍼가 차면 배치 인덱싱
             if len(doc_buffer) >= BATCH_SIZE:
-                await process_batch(doc_buffer, indexer)
+                ready_docs = [doc.model_dump(by_alias=True) for doc in doc_buffer]
+                await indexer.add_documents(ready_docs)
                 total_processed += len(doc_buffer)
                 doc_buffer = []  # 버퍼 초기화
 
         # 4. 남은 버퍼 처리
         if doc_buffer:
-            await process_batch(doc_buffer, indexer)
+            ready_docs = [doc.model_dump(by_alias=True) for doc in doc_buffer]
+            await indexer.add_documents(ready_docs)
             total_processed += len(doc_buffer)
 
         logger.info(f"Sync Complete | Index: {index_name}, Total Documents: {total_processed}")
 
     except Exception as e:
         logger.error(f"Failed to sync repository: {e}")
-        # Adaptive Client는 자동으로 폴백하므로 별도 처리 불필요
-
-
-async def process_batch(docs: list[GithubCodeDocument], indexer: MeiliIndexer):
-    """
-    문서 배치를 임베딩하고 인덱싱합니다.
-
-    Args:
-        docs: 처리할 문서 리스트
-        indexer: 사용할 MeiliIndexer 인스턴스
-    """
-    texts = [d.text for d in docs]
-    embeddings = await embedder.embed_documents(texts)
-
-    ready_docs = []
-    for doc, vector in zip(docs, embeddings):
-        # 벡터를 "default" 키를 가진 딕셔너리로 감쌉니다
-        doc.vectors = {"default": vector}
-        ready_docs.append(doc.model_dump(by_alias=True))
-
-    await indexer.add_documents(ready_docs)

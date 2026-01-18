@@ -33,9 +33,17 @@ class MeiliIndexer:
 
     def _ensure_index(self):
         try:
+            # 인덱스 타입별 Primary Key 설정
+            if "_pr" in self.index_name:
+                primary_key = "pr_number"
+            elif "_code" in self.index_name:
+                primary_key = "id"
+            else:
+                raise ValueError(f"Unknown index type: {self.index_name}. Must contain '_pr' or '_code'")
+
             try:
-                self.client.create_index(self.index_name, {"primaryKey": "id"})
-                logger.info(f"Created new index: {self.index_name}")
+                self.client.create_index(self.index_name, {"primaryKey": primary_key})
+                logger.info(f"Created new index: {self.index_name} with primaryKey: {primary_key}")
             except Exception as e:
                 if "already exists" in str(e).lower() or "index_already_exists" in str(e).lower():
                     logger.info(f"Index '{self.index_name}' already exists, using existing index")
@@ -47,8 +55,10 @@ class MeiliIndexer:
             # 2. 인덱스 타입 판별 (code / pr)
             if "_pr" in self.index_name:
                 self._configure_pr_index(index)
-            else:
+            elif "_code" in self.index_name:
                 self._configure_code_index(index)
+            else:
+                raise ValueError(f"Unknown index type: {self.index_name}. Must contain '_pr' or '_code'")
 
         except Exception as e:
             logger.error(f"Failed to configure Meilisearch index: {e}")
@@ -67,25 +77,22 @@ class MeiliIndexer:
         tasks.append(task)
 
         task = index.update_filterable_attributes([
-            "repository_id",
-            "owner",
-            "language",
             "category",
-            "source",
+            "owner",
+            "repo",
+            "branch",
             "metadata.class_name",
             "metadata.function_name"
         ])
         tasks.append(task)
 
-        task = index.update_sortable_attributes([
-            "repository_id"
-        ])
-        tasks.append(task)
-
         task = index.update_embedders({
             "default": {
-                "source": "userProvided",
-                "dimensions": 3072
+                "source": "openAi",
+                "model": "text-embedding-3-large",
+                "dimensions": 3072,
+                "apiKey": settings.OPENAI_API_KEY,
+                "documentTemplate": "{{doc.text}}"
             }
         })
         tasks.append(task)
@@ -111,13 +118,14 @@ class MeiliIndexer:
         tasks.append(task)
 
         task = index.update_filterable_attributes([
-            # 기본 필터
-            "repository_id",
+            # Repository 정보
             "owner",
-            "repo_name",
+            "repo",
+            "base_branch",
+            "head_branch",
 
             # PR 상태
-            "state",  # open, closed
+            "state",
             "author",
             "labels",
             "milestone",
@@ -132,7 +140,6 @@ class MeiliIndexer:
             "closed_at",
 
             # 크기 필터
-            "changed_files_count",
             "additions",
             "deletions"
         ])
@@ -143,7 +150,6 @@ class MeiliIndexer:
             "updated_at",
             "merged_at",
             "closed_at",
-            "changed_files_count",
             "additions",
             "deletions"
         ])
@@ -151,8 +157,11 @@ class MeiliIndexer:
 
         task = index.update_embedders({
             "default": {
-                "source": "userProvided",
-                "dimensions": 3072
+                "source": "openAi",
+                "model": "text-embedding-3-large",
+                "dimensions": 3072,
+                "apiKey": settings.OPENAI_API_KEY,
+                "documentTemplate": "[Title] {{doc.title}}\n\n[Body]\n{{doc.body}}\n\n[Commits]\n{{doc.commit_messages}}"
             }
         })
         tasks.append(task)

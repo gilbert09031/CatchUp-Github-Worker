@@ -4,8 +4,7 @@ PR Consumer: PR 메타데이터 수집 및 인덱싱
 1. RabbitMQ에서 PR 동기화 요청 수신
 2. GitHub API로 메타데이터 수집
 3. GithubPRDocument 생성
-4. OpenAI Embedding 생성
-5. Meilisearch 인덱싱
+4. Meilisearch 인덱싱 (임베딩은 Meilisearch가 자동 처리)
 """
 
 import logging
@@ -19,7 +18,6 @@ from src.services.github_pr_client import (
     RateLimitError,
     GithubAPIError
 )
-from src.embedding.openai_embedder import OpenAIEmbedder
 from src.indexing.meili_indexer import MeiliIndexer
 from src.config.settings import get_settings
 
@@ -29,7 +27,6 @@ settings = get_settings()
 
 # 서비스 인스턴스 초기화 (싱글톤)
 pr_client = GithubPrClient()
-embedder = OpenAIEmbedder()
 
 
 @router.subscriber("github_pull_request_queue")
@@ -64,45 +61,39 @@ async def sync_pr_metadata(msg: GithubPRSyncRequest):
         # 4. GithubPRDocument 생성
         logger.info(f"Creating PR document...")
         doc = GithubPRDocument(
+            # Meta
             source_type = 1,
-            owner_repo = f"{msg.owner}_{msg.repo_name}",
-            head_base = f"{pr_data['head_branch']}->{pr_data['base_branch']}",
+            # Primary Key
             pr_number = pr_data["pr_number"],
+            # Repository 정보
+            owner = msg.owner,
+            repo = msg.repo_name,
+            base_branch = pr_data['base_branch'],
+            head_branch = pr_data['head_branch'],
+            # PR 기본 정보
             title = pr_data["title"],
+            body = pr_data.get("body", ""),
             state = pr_data["state"],
             author = pr_data["author"],
+            # Timestamps
             created_at = pr_data["created_at"],
             updated_at = pr_data["updated_at"],
             merged_at = pr_data.get("merged_at"),
             closed_at = pr_data.get("closed_at"),
-            body = pr_data.get("body", ""),
+            # Commits
             commit_messages = pr_data.get("commit_messages", []),
+            # File Changes
             changed_files = pr_data.get("changed_files", []),
             additions = pr_data.get("additions", 0),
             deletions = pr_data.get("deletions", 0),
+            # Labels & Milestone
             labels = pr_data.get("labels", []),
             milestone = pr_data.get("milestone"),
-            html_url = pr_data["html_url"],
-            _vectors = {}
+            # Link
+            html_url = pr_data["html_url"]
         )
 
-        # 5. 검색용 텍스트 생성
-        search_text = GithubPRDocument.generate_search_text(
-            title=doc.title,
-            body=doc.body,
-            commit_messages=doc.commit_messages
-        )
-
-        logger.info(f"Search text generated: {len(search_text)} characters")
-
-        # 6. Embedding 생성
-        logger.info(f"Generating embedding...")
-        embedding = await embedder.embed_documents([search_text])
-        doc.vectors = {"default": embedding[0]}
-
-        logger.info(f"Embedding generated: {len(embedding[0])} dimensions")
-
-        # 7. Meilisearch 인덱싱
+        # 5. Meilisearch 인덱싱 (임베딩은 Meilisearch가 자동 처리)
         logger.info(f"Indexing to Meilisearch...")
         doc_dict = doc.model_dump(by_alias=True)
         await indexer.add_documents([doc_dict])
@@ -111,7 +102,7 @@ async def sync_pr_metadata(msg: GithubPRSyncRequest):
             f"PR #{msg.pr_number} indexed successfully to '{index_name}'"
         )
 
-        # 8. 요약 로그
+        # 6. 요약 로그
         logger.info(
             f"Summary: "
             f"PR #{doc.pr_number} | "
