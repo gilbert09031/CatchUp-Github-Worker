@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Dict, List, Optional, Literal
 
 class CodeChunk(BaseModel):
@@ -15,36 +15,55 @@ class CodeChunk(BaseModel):
 class GithubCodeDocument(BaseModel):
     source_type: int = Field(0, description="Source type: 0 for CODE")
 
-    file_path: str = Field(..., description="Format: path/to/file.py#0")
-    category: str = Field(..., description="'CODE' for programming languages, else file extension with dot (e.g., '.md', '.txt')")
-    owner_repo_branch: str = Field(..., description="Format: {owner}_{repo_name}@{branch}")
+    # Primary Key
+    id: str = Field(..., description="Primary Key. UUID5 of filepath + chunk_number")
 
+    # Repository 정보
+    owner: str = Field(..., description="Repository owner")
+    repo: str = Field(..., description="Repository name")
+    branch: str = Field(..., description="Branch name")
+
+    # File 정보
+    file_path: str = Field(..., description="Original file path")
+    chunk_number: int = Field(..., description="Chunk index")
+    category: str = Field(..., description="'CODE' for programming languages, Else file extension ('.md', '.txt')")
+
+    # Content
     text: str = Field(..., description="Chunked content")
-    html_url: str = Field(..., description="Direct link to GitHub")
-
     metadata: Optional[Dict[str, str]] = Field(default=None, description="Additional context metadata (class_name, function_name)")
-    vectors: Dict[str, List[float]] = Field(..., alias="_vectors", description="Vector embedding map")
+
+    # Link
+    html_url: str = Field(..., description="Direct link to GitHub")
 
     model_config = {
         "populate_by_name": True,
         "extra": "ignore"
     }
 
+    @staticmethod
+    def generate_id(file_path: str, chunk_number: int) -> str:
+        """Generate deterministic UUID5 from file_path and chunk_number"""
+        import uuid
+        unique_str = f"{file_path}#{chunk_number}"
+        # UUID5: 동일 입력 → 동일 출력, 128비트 공간으로 충돌 방지
+        return str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_str))
+
 
 class GithubPRDocument(BaseModel):
-    """
-    GitHub PR의 Meilisearch Document 형식
-    """
-
     source_type: int = Field(1, description="Source type: 1 for PR")
 
-    # Repository 정보
-    owner_repo: str = Field(..., description="Format: {owner}_{repo_name}")
-    head_base: str = Field(..., description="Format: {head_branch}->{base_branch}")
+    # Primary Key
+    pr_number: int = Field(..., description="Primary Key. Pull Request number")
 
-    # PR 핵심 정보
-    pr_number: int = Field(..., description="Pull Request number")
+    # Repository 정보
+    owner: str = Field(..., description="Repository owner")
+    repo: str = Field(..., description="Repository name")
+    base_branch: str = Field(..., description="Base branch (target branch)")
+    head_branch: str = Field(..., description="Head branch (source branch)")
+
+    # PR 기본 정보
     title: str = Field(..., description="PR title - primary search field")
+    body: str = Field(default="", description="PR description/body text")
     state: Literal["open", "closed", "merged"] = Field(..., description="PR state: 'open', 'closed', or 'merged'")
     author: str = Field(..., description="GitHub username of PR creator")
 
@@ -54,66 +73,22 @@ class GithubPRDocument(BaseModel):
     merged_at: Optional[int] = Field(default=None, description="Merge timestamp (Unix). None if not merged")
     closed_at: Optional[int] = Field(default=None, description="Close timestamp (Unix). None if still open")
 
-    # Rich Content (검색용)
-    body: str = Field(default="", description="PR description/body text")
+    # Commits
     commit_messages: List[str] = Field(default_factory=list, description="List of commit messages in this PR")
 
-    # File Changes Information
+    # File Changes
     changed_files: List[str] = Field(default_factory=list, description="List of file paths modified in this PR")
     additions: int = Field(default=0, description="Total lines added")
     deletions: int = Field(default=0, description="Total lines deleted")
 
-    # Categorization & Labels
+    # Labels & Milestone
     labels: List[str] = Field(default_factory=list, description="GitHub labels attached to this PR")
     milestone: Optional[str] = Field(default=None, description="Milestone name if assigned")
 
-    # Direct Link
+    # Link
     html_url: str = Field(..., description="Direct link to PR on GitHub")
-
-    # Vector Embedding
-    vectors: Dict[str, List[float]] = Field(..., alias="_vectors", description="Embedding vectors for semantic search")
 
     model_config = {
         "populate_by_name": True,
         "extra": "ignore"
     }
-
-    @staticmethod
-    def generate_search_text(
-            title: str,
-            body: str,
-            commit_messages: List[str]
-    ) -> str:
-        """
-        Embedding을 위한 통합 검색 텍스트 생성
-
-        구조:
-        [Title] {title}
-
-        [Body]
-        {body}
-
-        [Commits]
-        - {commit1}
-        - {commit2}
-        """
-        parts = []
-
-        # Title
-        if title:
-            parts.append(f"[Title] {title}")
-
-        # Body
-        if body and body.strip():
-            parts.append(f"[Body]\n{body.strip()}")
-
-        # Commit Messages
-        if commit_messages:
-            commits_section = "[Commits]\n" + "\n".join(
-                f"- {msg.strip()}"
-                for msg in commit_messages
-                if msg.strip()
-            )
-            parts.append(commits_section)
-
-        return "\n\n".join(parts)
