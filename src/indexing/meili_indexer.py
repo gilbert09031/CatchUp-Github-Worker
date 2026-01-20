@@ -78,6 +78,7 @@ class MeiliIndexer:
 
         task = index.update_filterable_attributes([
             "category",
+            "language",
             "owner",
             "repo",
             "branch",

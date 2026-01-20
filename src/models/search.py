@@ -27,6 +27,7 @@ class GithubCodeDocument(BaseModel):
     file_path: str = Field(..., description="Original file path")
     chunk_number: int = Field(..., description="Chunk index")
     category: str = Field(..., description="'CODE' for programming languages, Else file extension ('.md', '.txt')")
+    language: str = Field(..., description="Programming language")
 
     # Content
     text: str = Field(..., description="Chunked content")

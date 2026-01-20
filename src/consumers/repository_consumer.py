@@ -65,6 +65,7 @@ async def sync_repository_code(msg: GithubRepoSyncRequest):
                     file_path = chunk.file_path,
                     chunk_number = i,
                     category = get_file_category(chunk.file_path, chunk.language),
+                    language = chunk.language,
                     # Content
                     text = chunk.content,
                     metadata = chunk.metadata,
